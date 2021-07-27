@@ -1,0 +1,197 @@
+---
+title: "NBA Three-Pointers Attempted Per Year Forecast"
+author: "Justin"
+date: "12/14/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+source('http://faculty.cord.edu/reber/R/import.R')
+import.package('fpp2')
+import.package('readr')     # `read_csv` function
+import.package('dplyr')    
+import.package('tidyr') # `gather` function
+import.package('ggplot2')
+import.package('readxl')
+library(fpp2)
+library(tseries)
+```
+
+
+
+#The data file
+```{r}
+basketball <- read_excel(("Download from Github"))
+```
+
+#I got my data from a website called basketballreference.com, I took all the average stats since 1979 because that was when the three point line was introduced. The goal of this project is to try and predict the average amount of three pointers attempted in a game by a team for the next 5 years. I will do this by fixing the data with a dummy variable, using external variables to find a better model, and make a logical model based on my model and predictions.
+
+
+#The following R chunk is all of the TimeSeries I will be using throughout this notebook with an explanation. The reason I had to reverse them all is because the timeseries function would read the excel file the opposite way of how I wanted it to.
+
+#time series
+```{r}
+#TimeSeries of the NBA average three point attempts per game.
+BasketballThreePa <- ts(basketball$ThreePA, start=c(1979,1), frequency=1)
+BasketballThreePa[] <- rev(BasketballThreePa)
+
+#TimeSeries that I will reference only to identify a scenario in the data for a graph. (NOT IMPORTANT)
+BasketballThreePaBump <- ts(basketball$LinePlot, start=c(1979,1), frequency=1)
+BasketballThreePaBump[] <- rev(BasketballThreePaBump)
+#TimeSeries that I will reference only to identify a scenario in the data for a graph. (NOT IMPORTANT)
+BasketballThreePaBumpDummy <- ts(basketball$LinePlotDummy, start=c(1979,1), frequency=1)
+BasketballThreePaBumpDummy[] <- rev(BasketballThreePaBumpDummy)
+
+#TimeSeries of the Average points scored a game for a team.
+PTS <- ts(basketball$PTS, start=c(1979,1), frequency=1)
+PTS[] <- rev(PTS)
+
+#TimeSeries of the Average three point percent in the NBA.
+ThreePer <- ts(basketball$ThreePercent, start=c(1979,1), frequency=1)
+ThreePer[] <- rev(ThreePer)
+
+#TimeSeries of the average three point attempts per game for a team, but with a dummy variable that smoothes the big bump in the data.
+BasketballThreePaDummy <- ts(basketball$ThreePADummy, start=c(1979,1), frequency=1)
+BasketballThreePaDummy[] <- rev(BasketballThreePaDummy)
+```
+
+#Trying to make a forecast for the average three point shots attempted for the next 5 years. I decided to make an auto arima forecast and add external variables to try and make the forecast more realistic. I decided to start without using an external variable with two forecasts. One forecast that uses a dummy variable and the other to forecast without the dummy variable. The dummy variable is important because in 1994-1997 the NBA three point line was moved closer in hopes teams would take advantage of the three more.
+
+
+#This is the forecast without the dummy variable
+```{r}
+ plot((BasketballThreePa),
+ main="1994-1997 Three Point Line Moved", 
+ xlab="Year", 
+ ylab="Three Pointers Attempted") 
+ lines(BasketballThreePaBump, col="red") 
+```
+#As you can see, after the line was moved in people started shooting more three but then after 1997 they brought the line back to where it used to be. The dummy variable will smooth out this bump between 1994 and 1997 to look like this.
+```{r}
+ plot((BasketballThreePaDummy),
+   main="1994-1997 With Dummy Variable", 
+        xlab="Year", 
+        ylab="Three Pointers Attempted") 
+ lines(BasketballThreePaBumpDummy, col="red") 
+```
+
+#I decided to make auto arima models for both of those forecasts with and without the dummy variables and without external variables so I can see what I am working with so I know what I need to try and fix.
+
+```{r}
+Arima_fcPA <- forecast(auto.arima(BasketballThreePa), h=5)
+Arima_fcPA$mean
+plot((Arima_fcPA),   main="Auto Arima, No External Variable, NO Dummy Variable", 
+        xlab="Year", 
+        ylab="Three Pointers Attempted")
+
+Arima_fcPAd <- forecast(auto.arima(BasketballThreePaDummy), h=5)
+Arima_fcPAd$mean
+plot((Arima_fcPAd),main="Auto Arima, No External Variable, With Dummy Variable", 
+        xlab="Year", 
+        ylab="Three Pointers Attempted")
+
+```
+
+#I am not a fan of how these graphs looked like, the forecast without the dummy variable appeared to be more realistic because it went with a drift, but I have a feeling that the dummy variable will end up being better with external factors (I know this because I have already done it:))
+
+
+#I am now forecasting the average total points for a game to be my external variable to help forecast how many three point shots will be shot on average by one team in a game for the next 5 years. I will be doing this by using the auto arima function to find the best forecast for the next 5 years of the average total points per game, then use auto-ARIMA again to forecast the average three pointers attempted by one team in a game with the new total points forecast to help me get a more accurate forecast. Since in 1994-1997 they moved the three point line closer which led to players shooting more three pointers, I will be making a forecast with this included and a forecast with a dummy variable that smooths out the bump.
+
+```{r}
+
+#arima for three pointers attempted and total points without the dummy variable
+Arima_ThreePA_and_PTS <- auto.arima(BasketballThreePa, xreg=PTS)
+Arima_fcPTS <- forecast(auto.arima(PTS), h=5)
+Arima_fcPTS$mean
+fc_Arima_ThreePA_and_PTS <- forecast(Arima_ThreePA_and_PTS, h=5, xreg=Arima_fcPTS$mean)
+plot((fc_Arima_ThreePA_and_PTS), main="Auto Arima, External Variable=Total Points, NO Dummy Variable", 
+        xlab="Year", 
+        ylab="Three Pointers Attempted")
+
+#arima for three pointers attempted and total points WITH the dummy variable
+Arima_ThreePA_and_PTS_Dummy <- auto.arima(BasketballThreePaDummy, xreg=PTS)
+fc_Arima_ThreePA_and_PTS_Dummy <- forecast(Arima_ThreePA_and_PTS_Dummy, h=5, xreg=Arima_fcPTS$mean)
+plot((fc_Arima_ThreePA_and_PTS_Dummy), main="Auto Arima, External Variable=Total Points, With Dummy Variable", 
+        xlab="Year", 
+        ylab="Three Pointers Attempted")
+
+```
+#checkresiduals to see which forecast looks cleaner
+```{r}
+checkresiduals(fc_Arima_ThreePA_and_PTS)
+checkresiduals(fc_Arima_ThreePA_and_PTS_Dummy)
+#The lag plot is better with the dummy variable and the other plots look similar to each other, the residuals appear to be good.
+```
+#checking to see if the point forecast is realistic for ether the dummy forecast or the regular forecast.
+```{r}
+fc_Arima_ThreePA_and_PTS
+fc_Arima_ThreePA_and_PTS_Dummy
+```
+#the dummy forecast is more realistic because in 2023 the high and low forecast are closer to to the actual forecast, while without the dummy variable there could be between 35 to 57. realistically there will not be 25 more three pointers shot per team each game by 2023. The NBA would change the rules before it got to that point because it would make the game less entertaining. Overall both forecasts forcasted about the same points, 2019:34  2020:36.75  2021:39  2022:41.75  2023:44. The only big difference is the dummy variable has a smaller spread than the forecast without the dummy variable.
+
+
+#The next thing I want to do is use a different external factor. This time I will be using the percent of three pointers made on average per game. I want to use this external factor because I believe the NBA has logic to it. The reason teams are shooting more threes is because teams are realizing to efficiently score more points they need to maximize/capitalize on three pointers. That being said I think the three point percent will help forecast the future three pointers attempted.I will again be using a dummy variable for one forecast and not using one for the other forecast to see which one is better.
+
+```{r}
+#arima for three pointers attempted and three point percent without the dummy variable
+Arima_ThreePA_and_ThreePer <- auto.arima(BasketballThreePa, xreg=ThreePer)
+Arima_fcThreePer <- forecast(auto.arima(ThreePer), h=5)
+Arima_fcThreePer$mean
+fc_Arima_ThreePA_and_ThreePer <- forecast(Arima_ThreePA_and_ThreePer, h=5, xreg=Arima_fcThreePer$mean)
+plot((fc_Arima_ThreePA_and_ThreePer), main="Auto Arima, External Variable=Three Point Percent, NO Dummy Variable",
+        xlab="Year", 
+        ylab="Three Pointers Attempted")
+
+#arima for three pointers attempted and three point percent WITH the dummy variable
+Arima_ThreePA_and_ThreePer_Dummy <- auto.arima(BasketballThreePaDummy, xreg=ThreePer)
+fc_Arima_ThreePA_and_ThreePer_Dummy <- forecast(Arima_ThreePA_and_ThreePer_Dummy, h=5,  
+xreg=Arima_fcThreePer$mean)
+plot((fc_Arima_ThreePA_and_ThreePer_Dummy), main="Auto Arima, External Variable=Three Point Percent, With Dummy Variable",
+        xlab="Year", 
+        ylab="Three Pointers Attempted")
+```
+#checkresiduals to see which forecast looks cleaner
+```{r}
+checkresiduals(fc_Arima_ThreePA_and_ThreePer)
+checkresiduals(fc_Arima_ThreePA_and_ThreePer_Dummy)
+```
+#The lag plots are similar with the dummy variable and without the dummy variable. The other plots look similar to each other as well and the residuals appear to be good.
+
+#checking to see if the point forecast is realistic for ether the dummy forecast or the regular forecast.
+```{r}
+fc_Arima_ThreePA_and_ThreePer
+fc_Arima_ThreePA_and_ThreePer_Dummy
+```
+#Again, the dummy variable was more realistic and had about the same residuals as the previous forecast that included the dummy variable. They were exactly the same.
+
+#Here are the residuals of both dummy forecasts.
+```{r}
+checkresiduals(fc_Arima_ThreePA_and_PTS_Dummy)
+checkresiduals(fc_Arima_ThreePA_and_ThreePer_Dummy)
+
+```
+#The residuals of the forecasts without the dummy variables were different but the ones with the dummy variables were more accurate and the about same. Since both of my variables were so similar there is no point in combining them because I would get about the same results. This is the best forecast I could come up with using a model that R generates automatically. I decided to try to make a forecast based on what I would expect logically for the next 5 seasons. 
+
+#Currently as of 12/14/2019, the 2020 NBA season has an average of about 33.5 3 pointers shot on average per team. Knowing this, I needed to make a model that would hit this mark the first year but also start to round off because the data suggests that it will not increase substantially without any outside factors.
+
+
+#I decided to use the Holt forecast so I can manually adjust this with phi and beta. This is the forecast I came up with.
+```{r}
+Holt1 <- holt(BasketballThreePaDummy, damped = TRUE, phi = .8, beta = .5)
+fc_holt1 <- forecast(Holt1, h=5)
+plot((fc_holt1), main="Holts Forecast With Dummy Variable",
+        xlab="Year", 
+        ylab="Three Pointers Attempted")
+```
+#The graph looks like what I want it to look like, so I decided to check the residuals and high-low confidence intervals to see if the data fits what I wanted it to look like
+```{r}
+checkresiduals(fc_holt1)
+fc_holt1
+```
+#The residuals all looked clean and the hi lows are where I want them to be. I think that my results will be more accurate than the auto-ARIMA will be just because auto-ARIMA does not account for other scenarios it can not see, like individual players and rule changes.
+
+
